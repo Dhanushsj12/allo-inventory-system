@@ -6,15 +6,6 @@ export async function POST(req: Request) {
     const url = new URL(req.url);
     const id = url.pathname.split("/")[3];
 
-    console.log("RELEASE ID:", id);
-
-    if (!id) {
-      return NextResponse.json(
-        { error: "ID not found" },
-        { status: 400 }
-      );
-    }
-
     const reservation = await prisma.reservation.findUnique({
       where: { id },
     });
@@ -26,6 +17,14 @@ export async function POST(req: Request) {
       );
     }
 
+    // ❗ IMPORTANT FIX
+    if (reservation.status !== "PENDING") {
+      return NextResponse.json(
+        { error: "Already processed" },
+        { status: 400 }
+      );
+    }
+
     await prisma.reservation.update({
       where: { id },
       data: { status: "RELEASED" },
@@ -34,7 +33,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true });
 
   } catch (error: any) {
-    console.log("RELEASE ERROR:", error);
     return NextResponse.json(
       { error: error.message },
       { status: 500 }

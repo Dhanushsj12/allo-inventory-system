@@ -8,5 +8,19 @@ export async function GET() {
     },
   });
 
-  return NextResponse.json(products);
+  const result = products.map((p) => ({
+    id: p.id,
+    name: p.name,
+    inventories: p.inventories.map((inv) => ({
+      id: inv.id,
+      warehouseId: inv.warehouseId,
+      totalStock: inv.totalStock,
+      reservedStock: inv.reservedStock,
+
+      //  IMPORTANT FIX
+      availableStock: inv.totalStock - inv.reservedStock,
+    })),
+  }));
+
+  return NextResponse.json(result);
 }

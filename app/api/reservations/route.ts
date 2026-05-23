@@ -7,13 +7,6 @@ export async function POST(req: Request) {
 
     const { productId, warehouseId, quantity } = body;
 
-    if (!productId || !warehouseId || !quantity) {
-      return NextResponse.json(
-        { error: "Missing fields" },
-        { status: 400 }
-      );
-    }
-
     const reservation = await createReservation(
       productId,
       warehouseId,
@@ -23,7 +16,14 @@ export async function POST(req: Request) {
     return NextResponse.json(reservation);
 
   } catch (error: any) {
-    console.log("ERROR:", error);  // 👈 THIS WILL SHOW REAL ERROR
+
+    // IMPORTANT FIX (409)
+    if (error.message === "Not enough stock") {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json(
       { error: error.message },
