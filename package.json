@@ -15,7 +15,10 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
     "prisma": "^7.8.0",
+    "tailwindcss": "^4.3.0",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
   },

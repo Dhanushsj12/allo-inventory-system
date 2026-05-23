@@ -1,34 +1,19 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
+import { NextResponse } from "next/server";
 
-export async function POST(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const id = url.pathname.split("/")[3];
+export async function POST(
+  req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id } = await context.params;
 
-    const reservation = await prisma.reservation.findUnique({
+  return await prisma.$transaction(async (tx) => {
+    const reservation = await tx.reservation.findUnique({
       where: { id },
     });
 
     if (!reservation) {
-      return NextResponse.json(
-        { error: "Reservation not found" },
-        { status: 404 }
-      );
-    }
-
-    //  IMPORTANT FIX (expiry + 410)
-    if (reservation.expiresAt < new Date()) {
-
-      await prisma.reservation.update({
-        where: { id },
-        data: { status: "RELEASED" },
-      });
-
-      return NextResponse.json(
-        { error: "Reservation expired" },
-        { status: 410 }
-      );
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     if (reservation.status !== "PENDING") {
@@ -38,17 +23,35 @@ export async function POST(req: Request) {
       );
     }
 
-    await prisma.reservation.update({
+    const inventory = await tx.inventory.findFirst({
+      where: {
+        productId: reservation.productId,
+        warehouseId: reservation.warehouseId,
+      },
+    });
+
+    if (!inventory) {
+      return NextResponse.json({ error: "Inventory not found" });
+    }
+
+    // ✅ FINAL SALE
+    await tx.inventory.update({
+      where: { id: inventory.id },
+      data: {
+        reservedStock: {
+          decrement: reservation.quantity,
+        },
+        totalStock: {
+          decrement: reservation.quantity,
+        },
+      },
+    });
+
+    const updated = await tx.reservation.update({
       where: { id },
       data: { status: "CONFIRMED" },
     });
 
-    return NextResponse.json({ success: true });
-
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
-  }
+    return NextResponse.json(updated);
+  });
 }

@@ -1,23 +1,21 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
+import { NextResponse } from "next/server";
 
-export async function POST(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const id = url.pathname.split("/")[3];
+export async function POST(
+  req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id } = await context.params;
 
-    const reservation = await prisma.reservation.findUnique({
+  return await prisma.$transaction(async (tx) => {
+    const reservation = await tx.reservation.findUnique({
       where: { id },
     });
 
     if (!reservation) {
-      return NextResponse.json(
-        { error: "Reservation not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // ❗ IMPORTANT FIX
     if (reservation.status !== "PENDING") {
       return NextResponse.json(
         { error: "Already processed" },
@@ -25,17 +23,34 @@ export async function POST(req: Request) {
       );
     }
 
-    await prisma.reservation.update({
-      where: { id },
-      data: { status: "RELEASED" },
+    const inventory = await tx.inventory.findFirst({
+      where: {
+        productId: reservation.productId,
+        warehouseId: reservation.warehouseId,
+      },
     });
 
-    return NextResponse.json({ success: true });
+    if (!inventory) {
+      return NextResponse.json({ error: "Inventory not found" });
+    }
 
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
-  }
+    // ✅ RESTORE STOCK
+    await tx.inventory.update({
+      where: { id: inventory.id },
+      data: {
+        reservedStock: {
+          decrement: reservation.quantity,
+        },
+      },
+    });
+
+    const updated = await tx.reservation.update({
+      where: { id },
+      data: {
+        status: "RELEASED", // ✅ FIXED
+      },
+    });
+
+    return NextResponse.json(updated);
+  });
 }
