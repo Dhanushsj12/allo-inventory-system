@@ -4,3 +4,7 @@ node_modules
 .env.local
 dist
 build
+.npm-cache
+TODO.md
+
+TODO.md
