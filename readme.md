@@ -1,5 +1,7 @@
 # Allo Inventory Reservation System
 
+link: https://allo-inventory-system-dhanush.vercel.app
+
 This project is my implementation of the Allo Health engineering take-home exercise. It is a small inventory and checkout reservation system for multi-warehouse ecommerce, built with Next.js App Router, TypeScript, Prisma, and hosted Postgres.
 
 The main problem this app solves is the checkout race condition: when a customer reaches payment, stock should be held for a short time so another customer cannot buy the same physical unit. At the same time, stock should not be permanently reduced until payment actually succeeds.
