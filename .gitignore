@@ -16,3 +16,6 @@ allo-fixed/
 src_backup/
 
 .npm-cache/
+.vercel-data/
+.vercel-local/
+.vercel-roaming/
