@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withDatabaseRetry } from "@/lib/prisma";
 
 export async function GET(
   req: Request,
@@ -7,13 +7,15 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
-    const reservation = await prisma.reservation.findUnique({
-      where: { id },
-      include: {
-        product: true,
-        warehouse: true,
-      },
-    });
+    const reservation = await withDatabaseRetry(() =>
+      prisma.reservation.findUnique({
+        where: { id },
+        include: {
+          product: true,
+          warehouse: true,
+        },
+      })
+    );
 
     if (!reservation) {
       return NextResponse.json(

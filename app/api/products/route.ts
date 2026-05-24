@@ -1,22 +1,24 @@
 
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withDatabaseRetry } from "@/lib/prisma";
 import { releaseExpiredReservations } from "@/lib/reservations";
 
 export async function GET() {
   try {
-    await prisma.$transaction(async (tx) => {
-      await releaseExpiredReservations(tx);
-    });
+    const products = await withDatabaseRetry(async () => {
+      await prisma.$transaction(async (tx) => {
+        await releaseExpiredReservations(tx);
+      });
 
-    const products = await prisma.product.findMany({
-      include: {
-        inventories: {
-          include: { warehouse: true },
-          orderBy: { warehouse: { name: "asc" } },
+      return prisma.product.findMany({
+        include: {
+          inventories: {
+            include: { warehouse: true },
+            orderBy: { warehouse: { name: "asc" } },
+          },
         },
-      },
-      orderBy: { name: "asc" },
+        orderBy: { name: "asc" },
+      });
     });
 
     return NextResponse.json(

@@ -273,7 +273,7 @@ For production, I would add a scheduled job as well, for example a Vercel Cron j
 Create a `.env` file:
 
 ```bash
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?sslmode=require"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?sslmode=no-verify"
 ```
 
 Install dependencies:
@@ -317,6 +317,18 @@ If PowerShell blocks `npm`, use:
 ```bash
 npm.cmd run dev
 ```
+
+## Deploying to Vercel
+
+Add `DATABASE_URL` in Vercel under Project Settings -> Environment Variables.
+
+For Supabase, use the pooled connection string from `Project Settings -> Database -> Connection string -> Transaction pooler`. The direct database host can fail on Vercel because serverless functions may not have IPv6 database access. Make sure the value uses TLS without local certificate-chain verification, for example:
+
+```bash
+DATABASE_URL="postgresql://USER:PASSWORD@POOLER_HOST:6543/postgres?sslmode=no-verify"
+```
+
+After changing the environment variable, redeploy the project.
 
 ## Checking the Database
 
