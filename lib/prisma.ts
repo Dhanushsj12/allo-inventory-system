@@ -27,7 +27,7 @@ function getDatabaseUrl() {
 
   const url = new URL(databaseUrl);
 
-  if (url.hostname.includes("supabase.co")) {
+  if (url.hostname.includes("supabase.co") || url.hostname.includes("supabase.com")) {
     url.searchParams.set("sslmode", "no-verify");
   }
 
