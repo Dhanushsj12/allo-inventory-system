@@ -21,13 +21,27 @@ export default function CheckoutPage() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
 
+  async function readJson(res: Response) {
+    const text = await res.text();
+
+    if (!text) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: text };
+    }
+  }
+
   async function loadReservation() {
     setMessage("");
     const res = await fetch(`/api/reservations/${id}`, { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
 
     if (!res.ok) {
-      setMessage(data.error || "Could not load reservation.");
+      setMessage(data?.error || "Could not load reservation.");
       return;
     }
 
@@ -62,10 +76,10 @@ export default function CheckoutPage() {
       const res = await fetch(`/api/reservations/${id}/${action}`, {
         method: "POST",
       });
-      const data = await res.json();
+      const data = await readJson(res);
 
       if (!res.ok) {
-        setMessage(data.error || "Action failed.");
+        setMessage(data?.error || "Action failed.");
         await loadReservation();
         return;
       }

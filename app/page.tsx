@@ -25,22 +25,36 @@ export default function Home() {
   const [reservingKey, setReservingKey] = useState<string | null>(null);
   const [error, setError] = useState("");
 
+  async function readJson(res: Response) {
+    const text = await res.text();
+
+    if (!text) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: text };
+    }
+  }
+
   async function loadProducts() {
     setLoading(true);
     setError("");
 
     try {
       const res = await fetch("/api/products", { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
 
       if (!res.ok) {
-        throw new Error(data.error || "Could not load products.");
+        throw new Error(data?.error || "Could not load products.");
       }
 
-      setProducts(data);
+      setProducts(data || []);
       setSelectedWarehouses((current) => {
         const next = { ...current };
-        for (const product of data) {
+        for (const product of data || []) {
           if (!next[product.id] && product.warehouses[0]) {
             next[product.id] = product.warehouses[0].warehouseId;
           }
@@ -75,10 +89,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId, warehouseId, quantity: 1 }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
 
       if (!res.ok) {
-        throw new Error(data.error || "Reservation failed.");
+        throw new Error(data?.error || "Reservation failed.");
       }
 
       router.push(`/checkout/${data.id}`);
