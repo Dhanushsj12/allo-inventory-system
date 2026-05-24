@@ -1,48 +1,66 @@
-import { prisma } from "@/src/lib/prisma";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { releaseExpiredReservations } from "@/lib/reservations";
+
+const RESERVATION_MINUTES = 10;
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  const { productId, warehouseId, quantity } = body;
+  try {
+    const body = await req.json();
+    const quantity = Number(body.quantity ?? 1);
 
-  return await prisma.$transaction(async (tx) => {
-    const inventory = await tx.inventory.findFirst({
-      where: { productId, warehouseId },
-    });
-
-    if (!inventory) {
-      return NextResponse.json({ error: "Inventory not found" });
-    }
-
-    const available = inventory.totalStock - inventory.reservedStock;
-
-    if (available < quantity) {
+    if (!body.productId || !body.warehouseId || !Number.isInteger(quantity) || quantity < 1) {
       return NextResponse.json(
-        { error: "Not enough stock" },
+        { error: "Product, warehouse, and a valid quantity are required." },
         { status: 400 }
       );
     }
 
-    // ✅ ONLY reservedStock increases
-    await tx.inventory.update({
-      where: { id: inventory.id },
-      data: {
-        reservedStock: {
-          increment: quantity,
+    const reservation = await prisma.$transaction(async (tx) => {
+      await releaseExpiredReservations(tx);
+
+      const updated = await tx.$queryRaw<{ id: string }[]>`
+        UPDATE "Inventory"
+        SET "reservedStock" = "reservedStock" + ${quantity}
+        WHERE "productId" = ${body.productId}
+          AND "warehouseId" = ${body.warehouseId}
+          AND ("totalStock" - "reservedStock") >= ${quantity}
+        RETURNING "id"
+      `;
+
+      if (updated.length !== 1) {
+        return null;
+      }
+
+      return tx.reservation.create({
+        data: {
+          productId: body.productId,
+          warehouseId: body.warehouseId,
+          quantity,
+          expiresAt: new Date(Date.now() + RESERVATION_MINUTES * 60 * 1000),
+          status: "PENDING",
         },
-      },
+        include: {
+          product: true,
+          warehouse: true,
+        },
+      });
     });
 
-    const reservation = await tx.reservation.create({
-      data: {
-        productId,
-        warehouseId,
-        quantity,
-        status: "PENDING",
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      },
-    });
+    if (!reservation) {
+      return NextResponse.json(
+        { error: "Not enough stock available." },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json(reservation);
-  });
+  } catch (error) {
+    console.error("RESERVATION ERROR:", error);
+
+    return NextResponse.json(
+      { error: "Reservation failed" },
+      { status: 500 }
+    );
+  }
 }

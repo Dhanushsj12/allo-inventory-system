@@ -1,8 +1,19 @@
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+});
+
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
+  await prisma.reservation.deleteMany();
+  await prisma.inventory.deleteMany();
+  await prisma.product.deleteMany();
+  await prisma.warehouse.deleteMany();
+
   // PRODUCTS
   const product1 = await prisma.product.create({
     data: { name: "T-Shirt" },
@@ -75,7 +86,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-
-
-console.log(await prisma.product.findMany());
-console.log(await prisma.warehouse.findMany());

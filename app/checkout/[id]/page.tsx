@@ -1,152 +1,139 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+type Reservation = {
+  id: string;
+  quantity: number;
+  status: string;
+  expiresAt: string;
+  product: { name: string };
+  warehouse: { name: string };
+};
 
 export default function CheckoutPage() {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const [reservation, setReservation] = useState<Reservation | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState("");
 
-  const [reservation, setReservation] = useState<any>(null);
-  const [timeLeft, setTimeLeft] = useState(0);
+  async function loadReservation() {
+    setMessage("");
+    const res = await fetch(`/api/reservations/${id}`, { cache: "no-store" });
+    const data = await res.json();
 
-  // 🔥 FETCH RESERVATION
-  const fetchReservation = async () => {
+    if (!res.ok) {
+      setMessage(data.error || "Could not load reservation.");
+      return;
+    }
+
+    setReservation(data);
+  }
+
+  useEffect(() => {
+    if (id) {
+      loadReservation();
+    }
+  }, [id]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const secondsLeft = useMemo(() => {
+    if (!reservation) return 0;
+    return Math.max(0, Math.floor((new Date(reservation.expiresAt).getTime() - now) / 1000));
+  }, [reservation, now]);
+
+  const countdown = `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}`;
+  const isPending = reservation?.status === "PENDING";
+  const isExpired = isPending && secondsLeft <= 0;
+
+  async function act(action: "confirm" | "release") {
+    setBusy(action);
+    setMessage("");
+
     try {
-      const res = await fetch(`/api/reservations/${id}`);
+      const res = await fetch(`/api/reservations/${id}/${action}`, {
+        method: "POST",
+      });
+      const data = await res.json();
 
       if (!res.ok) {
-        console.error("Failed to fetch reservation");
+        setMessage(data.error || "Action failed.");
+        await loadReservation();
         return;
       }
 
-      const data = await res.json();
       setReservation(data);
-
-      if (data.status === "PENDING") {
-        const expiry = new Date(data.expiresAt).getTime();
-        const now = Date.now();
-        setTimeLeft(Math.max(0, Math.floor((expiry - now) / 1000)));
-      }
-    } catch (err) {
-      console.error(err);
+      setMessage(action === "confirm" ? "Purchase confirmed." : "Reservation cancelled.");
+    } finally {
+      setBusy("");
     }
-  };
-
-  useEffect(() => {
-    if (!id) return;
-    fetchReservation();
-  }, [id]);
-
-  // 🔥 TIMER
-  useEffect(() => {
-    if (!timeLeft || reservation?.status !== "PENDING") return;
-
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          fetchReservation();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [timeLeft, reservation]);
-
-  if (!reservation) return <p className="p-6">Loading...</p>;
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-      <div className="bg-white shadow-lg rounded-xl p-8 w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-6">Checkout</h1>
+    <main className="checkoutShell">
+      <Link href="/" className="backLink">
+        Back to products
+      </Link>
 
-        <p><b>ID:</b> {reservation.id}</p>
-        <p><b>Status:</b> {reservation.status}</p>
+      <section className="checkoutPanel">
+        <p className="eyebrow">Checkout</p>
+        <h1>{reservation?.product.name || "Reservation"}</h1>
 
-        {reservation.status === "PENDING" && (
-          <p><b>Expires in:</b> {timeLeft}s</p>
+        {!reservation && !message && <p className="muted">Loading reservation...</p>}
+        {message && <p className={message.includes("expired") ? "error" : "success"}>{message}</p>}
+
+        {reservation && (
+          <>
+            <dl className="details">
+              <div>
+                <dt>Warehouse</dt>
+                <dd>{reservation.warehouse.name}</dd>
+              </div>
+              <div>
+                <dt>Quantity</dt>
+                <dd>{reservation.quantity}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{reservation.status}</dd>
+              </div>
+              <div>
+                <dt>Time left</dt>
+                <dd>{isPending ? countdown : "Closed"}</dd>
+              </div>
+            </dl>
+
+            {isExpired && <p className="error">Reservation expired. Confirming will return 410.</p>}
+
+            <div className="actions">
+              <button
+                onClick={() => act("confirm")}
+                disabled={!isPending || busy === "confirm"}
+              >
+                {busy === "confirm" ? "Confirming..." : "Confirm purchase"}
+              </button>
+              <button
+                className="secondary"
+                onClick={() => act("release")}
+                disabled={!isPending || busy === "release"}
+              >
+                {busy === "release" ? "Cancelling..." : "Cancel"}
+              </button>
+              <button className="secondary" onClick={() => router.push("/")}>
+                View stock
+              </button>
+            </div>
+          </>
         )}
-
-        {/* MESSAGE */}
-        {reservation.status !== "PENDING" && (
-          <p className="mt-4 text-center text-sm text-gray-500">
-            This reservation is already completed.
-          </p>
-        )}
-
-        {/* BUTTONS */}
-        {reservation.status === "PENDING" && (
-          <div className="mt-6 flex gap-3">
-
-            {/* CONFIRM */}
-            <button
-              onClick={async () => {
-                const res = await fetch(`/api/reservations/${id}/confirm`, {
-                  method: "POST",
-                });
-
-                const data = await res.json();
-
-                if (!res.ok) {
-                  alert(data.error);
-                  return;
-                }
-
-                setReservation(data);
-              }}
-              className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700"
-            >
-              Confirm
-            </button>
-
-            {/* CANCEL */}
-            <button
-              onClick={async () => {
-                const res = await fetch(`/api/reservations/${id}/release`, {
-                  method: "POST",
-                });
-
-                const data = await res.json();
-
-                if (!res.ok) {
-                  alert(data.error);
-                  return;
-                }
-
-                setReservation(data);
-                await fetchReservation(); // refresh
-              }}
-              className="flex-1 bg-red-500 text-white py-2 rounded-lg hover:bg-red-600"
-            >
-              Cancel
-            </button>
-
-          </div>
-        )}
-
-        {/* 🔥 BACK BUTTON (FINAL FIX) */}
-        <div className="mt-6">
-          <button
-            onClick={async () => {
-              // 🔥 AUTO RELEASE BEFORE LEAVING
-              if (reservation?.status === "PENDING") {
-                await fetch(`/api/reservations/${id}/release`, {
-                  method: "POST",
-                });
-              }
-
-              router.push("/");
-            }}
-            className="w-full bg-gray-800 text-white py-2 rounded-lg hover:bg-gray-900"
-          >
-            Back to Products
-          </button>
-        </div>
-
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

@@ -1,137 +1,186 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+type WarehouseStock = {
+  warehouseId: string;
+  warehouseName: string;
+  totalStock: number;
+  reservedStock: number;
+  availableStock: number;
+};
+
+type Product = {
+  id: string;
+  name: string;
+  warehouses: WarehouseStock[];
+};
+
 export default function Home() {
-  const [products, setProducts] = useState<any[]>([]);
   const router = useRouter();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedWarehouses, setSelectedWarehouses] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [reservingKey, setReservingKey] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
-  // 🔥 FETCH PRODUCTS (AUTO REFRESH)
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await fetch("/api/products");
-        const data = await res.json();
-        setProducts(data);
-      } catch (err) {
-        console.error(err);
+  async function loadProducts() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/products", { cache: "no-store" });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Could not load products.");
       }
-    };
 
-    fetchData();
+      setProducts(data);
+      setSelectedWarehouses((current) => {
+        const next = { ...current };
+        for (const product of data) {
+          if (!next[product.id] && product.warehouses[0]) {
+            next[product.id] = product.warehouses[0].warehouseId;
+          }
+        }
+        return next;
+      });
+    } catch (err: any) {
+      setError(err.message || "Could not load products.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-    const interval = setInterval(fetchData, 3000);
-    return () => clearInterval(interval);
+  useEffect(() => {
+    loadProducts();
   }, []);
 
-  // 🔥 RESERVE FUNCTION
-  const handleReserve = async (productId: string, warehouseId: string) => {
+  async function reserve(productId: string) {
+    const warehouseId = selectedWarehouses[productId];
+
+    if (!warehouseId) {
+      setError("Choose a warehouse first.");
+      return;
+    }
+
+    setReservingKey(`${productId}:${warehouseId}`);
+    setError("");
+
     try {
       const res = await fetch("/api/reservations", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          productId,
-          warehouseId,
-          quantity: 1,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId, warehouseId, quantity: 1 }),
       });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text);
-      }
-
       const data = await res.json();
 
-      // ✅ redirect to checkout
-      router.push(`/checkout/${data.id}`);
+      if (!res.ok) {
+        throw new Error(data.error || "Reservation failed.");
+      }
 
-    } catch (err) {
-      console.error(err);
-      alert("Reservation failed");
+      router.push(`/checkout/${data.id}`);
+    } catch (err: any) {
+      setError(err.message || "Reservation failed.");
+      await loadProducts();
+    } finally {
+      setReservingKey(null);
     }
-  };
+  }
+
+  const totalAvailable = useMemo(
+    () =>
+      products.reduce(
+        (sum, product) =>
+          sum + product.warehouses.reduce((inner, stock) => inner + stock.availableStock, 0),
+        0
+      ),
+    [products]
+  );
 
   return (
-    <div className="min-h-screen bg-gray-100 px-6 py-8">
-      <h1 className="text-3xl font-bold mb-6">
-        Allo Inventory
-      </h1>
+    <main className="shell">
+      <section className="topbar">
+        <div>
+          <p className="eyebrow">Allo Inventory</p>
+          <h1>Checkout reservations</h1>
+        </div>
+        <button className="secondary" onClick={loadProducts} disabled={loading}>
+          Refresh
+        </button>
+      </section>
 
-      <div className="space-y-6">
-        {products.map((product) => (
-          <div
-            key={product.id}
-            className="bg-white rounded-xl shadow-md p-6"
-          >
-            {/* 🔥 PRODUCT TITLE */}
-            <h2 className="text-xl font-semibold">
-              {product.name}
-            </h2>
+      <section className="summary">
+        <div>
+          <span>Products</span>
+          <strong>{products.length}</strong>
+        </div>
+        <div>
+          <span>Available units</span>
+          <strong>{totalAvailable}</strong>
+        </div>
+      </section>
 
-            {/* 🔥 ADDED LINE (YOU WANTED THIS) */}
-            <p className="text-sm text-gray-500 mb-4">
-              Real-time inventory with reservation system
-            </p>
+      {error && <p className="error">{error}</p>}
+      {loading && <p className="muted">Loading inventory...</p>}
 
-            {/* 🔥 INVENTORY LIST */}
-            <div className="space-y-4">
-              {product.inventories.map((inv: any, index: number) => {
-                const available =
-                  inv.totalStock - inv.reservedStock;
+      <section className="productGrid">
+        {products.map((product) => {
+          const selectedWarehouseId = selectedWarehouses[product.id];
+          const selectedStock = product.warehouses.find(
+            (stock) => stock.warehouseId === selectedWarehouseId
+          );
+          const isReserving = reservingKey === `${product.id}:${selectedWarehouseId}`;
 
-                return (
-                  <div
-                    key={inv.id}
-                    className="flex justify-between items-center border-t pt-4"
-                  >
-                    {/* LEFT SIDE */}
-                    <div>
-                      <p className="text-sm font-medium">
-                        Warehouse {index + 1}
-                      </p>
+          return (
+            <article className="productCard" key={product.id}>
+              <div className="productHeader">
+                <h2>{product.name}</h2>
+                <span>{selectedStock?.availableStock ?? 0} available</span>
+              </div>
 
-                      <p className="text-sm">
-                        Stock:{" "}
-                        <span
-                          className={
-                            available > 0
-                              ? "text-green-600 font-semibold"
-                              : "text-red-500 font-semibold"
-                          }
-                        >
-                          {available}
-                        </span>
-                      </p>
-                    </div>
+              <label>
+                Warehouse
+                <select
+                  value={selectedWarehouseId || ""}
+                  onChange={(event) =>
+                    setSelectedWarehouses((current) => ({
+                      ...current,
+                      [product.id]: event.target.value,
+                    }))
+                  }
+                >
+                  {product.warehouses.map((stock) => (
+                    <option key={stock.warehouseId} value={stock.warehouseId}>
+                      {stock.warehouseName}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-                    {/* RIGHT SIDE BUTTON */}
-                    <button
-                      disabled={available <= 0}
-                      onClick={() =>
-                        handleReserve(product.id, inv.warehouseId)
-                      }
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                        available > 0
-                          ? "bg-blue-600 text-white hover:bg-blue-700"
-                          : "bg-gray-300 text-gray-600 cursor-not-allowed"
-                      }`}
-                    >
-                      {available > 0
-                        ? "Reserve"
-                        : "Out of stock"}
-                    </button>
+              <div className="stockRows">
+                {product.warehouses.map((stock) => (
+                  <div key={stock.warehouseId}>
+                    <span>{stock.warehouseName}</span>
+                    <strong>
+                      {stock.availableStock}/{stock.totalStock}
+                    </strong>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => reserve(product.id)}
+                disabled={!selectedStock || selectedStock.availableStock < 1 || isReserving}
+              >
+                {isReserving ? "Reserving..." : "Reserve"}
+              </button>
+            </article>
+          );
+        })}
+      </section>
+    </main>
   );
 }

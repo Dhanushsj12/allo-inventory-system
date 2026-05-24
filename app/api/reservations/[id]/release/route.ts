@@ -1,4 +1,4 @@
-import { prisma } from "@/src/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
 export async function POST(
@@ -7,7 +7,7 @@ export async function POST(
 ) {
   const { id } = await context.params;
 
-  return await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({
       where: { id },
     });
@@ -17,10 +17,7 @@ export async function POST(
     }
 
     if (reservation.status !== "PENDING") {
-      return NextResponse.json(
-        { error: "Already processed" },
-        { status: 400 }
-      );
+      return NextResponse.json(reservation);
     }
 
     const inventory = await tx.inventory.findFirst({
@@ -31,23 +28,22 @@ export async function POST(
     });
 
     if (!inventory) {
-      return NextResponse.json({ error: "Inventory not found" });
+      return NextResponse.json({ error: "Inventory not found" }, { status: 404 });
     }
 
-    // ✅ RESTORE STOCK
     await tx.inventory.update({
       where: { id: inventory.id },
       data: {
-        reservedStock: {
-          decrement: reservation.quantity,
-        },
+        reservedStock: { decrement: reservation.quantity },
       },
     });
 
     const updated = await tx.reservation.update({
       where: { id },
-      data: {
-        status: "RELEASED", // ✅ FIXED
+      data: { status: "RELEASED" },
+      include: {
+        product: true,
+        warehouse: true,
       },
     });
 

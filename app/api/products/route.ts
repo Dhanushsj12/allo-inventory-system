@@ -1,26 +1,35 @@
+
 import { NextResponse } from "next/server";
-import { prisma } from "@/src/lib/prisma";
+import { prisma } from "@/lib/prisma";
+import { releaseExpiredReservations } from "@/lib/reservations";
 
 export async function GET() {
-  const products = await prisma.product.findMany({
-    include: {
-      inventories: true,
-    },
+  await prisma.$transaction(async (tx) => {
+    await releaseExpiredReservations(tx);
   });
 
-  const result = products.map((p) => ({
-    id: p.id,
-    name: p.name,
-    inventories: p.inventories.map((inv) => ({
-      id: inv.id,
-      warehouseId: inv.warehouseId,
-      totalStock: inv.totalStock,
-      reservedStock: inv.reservedStock,
+  const products = await prisma.product.findMany({
+    include: {
+      inventories: {
+        include: { warehouse: true },
+        orderBy: { warehouse: { name: "asc" } },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
 
-      //  IMPORTANT FIX
-      availableStock: inv.totalStock - inv.reservedStock,
-    })),
-  }));
-
-  return NextResponse.json(result);
+  return NextResponse.json(
+    products.map((product) => ({
+      id: product.id,
+      name: product.name,
+      warehouses: product.inventories.map((inventory) => ({
+        inventoryId: inventory.id,
+        warehouseId: inventory.warehouseId,
+        warehouseName: inventory.warehouse.name,
+        totalStock: inventory.totalStock,
+        reservedStock: inventory.reservedStock,
+        availableStock: inventory.totalStock - inventory.reservedStock,
+      })),
+    }))
+  );
 }
